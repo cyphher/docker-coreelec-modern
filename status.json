@@ -1,0 +1,39 @@
+{
+  "checked_at": "2026-10-09T03:25:00Z",
+  "docker": "29.9.0",
+  "compose": "v5.6.0",
+  "buildx": "v0.38.0",
+  "result": "pass",
+  "checks": [
+    {
+      "status": "PASS",
+      "name": "latest-versions",
+      "detail": "Docker 29.9.0, Compose v5.6.0, Buildx v0.38.0"
+    },
+    {
+      "status": "PASS",
+      "name": "aarch64-tarball",
+      "detail": "all expected binaries present"
+    },
+    {
+      "status": "PASS",
+      "name": "config-default",
+      "detail": "configuration OK"
+    },
+    {
+      "status": "PASS",
+      "name": "config-min-api-version",
+      "detail": "configuration OK"
+    },
+    {
+      "status": "PASS",
+      "name": "compose-asset",
+      "detail": "docker-compose-linux-aarch64 and .sha256 present"
+    },
+    {
+      "status": "PASS",
+      "name": "buildx-asset",
+      "detail": "buildx-v0.38.0.linux-arm64 and checksums.txt entry present"
+    }
+  ]
+}
