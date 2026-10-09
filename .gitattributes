@@ -1,0 +1,2 @@
+# CoreELEC's shell cannot run scripts with Windows line endings
+*.sh text eol=lf

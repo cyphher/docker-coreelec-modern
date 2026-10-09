@@ -1,0 +1,17 @@
+name: test
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: ShellCheck
+        run: shellcheck -s bash --severity=warning docker-coreelec.sh tests/run-tests.sh
+
+      - name: Test suite
+        run: bash tests/run-tests.sh
