@@ -53,7 +53,7 @@ The outcome is always a new row in [COMPATIBILITY.md](COMPATIBILITY.md) and an u
 
 ## One-time setup
 
-- **Settings → Actions → General → Workflow permissions:** select *Read and write permissions* and tick *Allow GitHub Actions to create and approve pull requests*. Without this, `upstream-check` cannot publish its status and `auto-pr` cannot open pull requests.
+- **Settings → Actions → General → Workflow permissions** (the last block on the page): tick *Allow GitHub Actions to create and approve pull requests* and save. Without it, `auto-pr` cannot open pull requests. The default token permission can stay *read*: each workflow asks for the extra rights it needs.
 - **Watch the repository** (at least *Issues* and *Pull requests*) to get notified.
 
 ## Reviewing an automatic pull request
