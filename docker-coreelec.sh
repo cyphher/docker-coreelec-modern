@@ -102,6 +102,10 @@ Commands:
   self-update  Replace this script with the newest version from GitHub
   help         Show this help
 
+For maintainers (change nothing):
+  print-default-config   Print the daemon.json a fresh install would write
+  latest-versions        Print the latest Docker, Compose and Buildx versions
+
 Options:
   -y           Do not ask for confirmation
 
@@ -988,6 +992,11 @@ done
 
 case "$CMD" in
     status)             do_status; exit 0 ;;
+    # For maintainers and CI: no changes to the system.
+    print-default-config)
+        write_default_config /dev/stdout "$DEFAULT_DATA_ROOT" overlay2; exit 0 ;;
+    latest-versions)
+        echo "${DOCKER_VERSION:-$(docker_latest)} ${COMPOSE_VERSION:-$(gh_latest docker/compose)} ${BUILDX_VERSION:-$(gh_latest docker/buildx)}"; exit 0 ;;
     help|-h|--help)     usage; exit 0 ;;
     self-update)        do_self_update; exit $? ;;
     install|update)     CMD=install ;;

@@ -1,0 +1,6 @@
+# Upstream versions that have been reviewed (see MAINTENANCE.md).
+# Updated by the weekly maintenance task in its pull request.
+DOCKER=29.9.0
+COMPOSE=
+BUILDX=
+REVIEWED=2026-10-09

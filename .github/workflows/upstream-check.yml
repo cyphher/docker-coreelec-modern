@@ -1,0 +1,68 @@
+name: upstream-check
+
+# Daily check of the Docker, Compose and Buildx releases the script installs.
+# The result is written to the 'upstream-status' branch (read by the weekly maintenance
+# task, see MAINTENANCE.md); a failure also opens an issue labelled 'upstream'.
+
+on:
+  schedule:
+    - cron: "17 5 * * *"
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/upstream-check.yml"
+      - ".github/scripts/upstream-check.sh"
+      - "docker-coreelec.sh"
+
+permissions:
+  contents: write
+  issues: write
+
+concurrency: upstream-check
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check upstream releases
+        run: OUT=out bash .github/scripts/upstream-check.sh
+
+      - name: Job summary
+        run: cat out/summary.md >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Publish to the upstream-status branch
+        run: |
+          set -e
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          if git ls-remote --exit-code --heads origin upstream-status >/dev/null; then
+            git fetch origin upstream-status
+            git worktree add pub origin/upstream-status
+            git -C pub checkout -B upstream-status
+          else
+            git worktree add --detach pub
+            git -C pub checkout --orphan upstream-status
+            git -C pub rm -rfq .
+          fi
+          cp out/status.json out/summary.md pub/
+          jq -r '[.checked_at, .docker, .compose, .buildx, .result] | @csv' out/status.json >> pub/history.csv
+          cd pub
+          git add -A
+          git commit -qm "upstream check $(jq -r '.checked_at + ": " + .result + " (Docker " + .docker + ")"' status.json)"
+          git push origin upstream-status
+
+      - name: Open an issue on failure
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          [ "$(jq -r .result out/status.json)" = fail ] || exit 0
+          gh label create upstream --color B60205 --description "Upstream release problem" 2>/dev/null || true
+          open=$(gh issue list --label upstream --state open --json number --jq 'length')
+          if [ "$open" = 0 ]; then
+            gh issue create --label upstream \
+              --title "Upstream check failed (Docker $(jq -r .docker out/status.json))" \
+              --body-file out/summary.md
+          fi

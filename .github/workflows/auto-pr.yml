@@ -1,0 +1,38 @@
+name: auto-pr
+
+# Branches named auto/* are pushed by the weekly maintenance task (see MAINTENANCE.md).
+# This turns each of them into a pull request, so nothing reaches main without review.
+# Needs: Settings > Actions > General > "Allow GitHub Actions to create and approve pull requests".
+
+on:
+  push:
+    branches: ["auto/**"]
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  open-pr:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Open a pull request
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          branch="$GITHUB_REF_NAME"
+          if [ -n "$(gh pr list --head "$branch" --state open --json number --jq '.[].number')" ]; then
+            echo "A pull request for $branch already exists"; exit 0
+          fi
+          {
+            git log --format='%b' -1 "origin/$branch"
+            echo
+            echo "---"
+            echo "Opened automatically for branch \`$branch\`. The test workflow ran on the push; check it before merging."
+          } > body.md
+          gh pr create --base main --head "$branch" \
+            --title "$(git log --format=%s -1 "origin/$branch")" --body-file body.md

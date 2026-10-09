@@ -10,4 +10,6 @@ First version.
 - Backup before every change, automatic rollback if Docker or a container does not come back, manual `rollback`
 - Runs in the background so a dropped SSH/VPN session does not interrupt it
 - Keeps an existing `daemon.json` when the new Docker validates it
-- `status`, `uninstall` and `uninstall --purge`
+- `status`, `uninstall`, `uninstall --purge` and `self-update`
+- `print-default-config` and `latest-versions` for maintainers and CI
+- Daily upstream check and weekly review process (see MAINTENANCE.md)

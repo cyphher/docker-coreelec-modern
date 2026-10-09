@@ -173,6 +173,10 @@ No box, root or network is needed. The suite and ShellCheck run on every push vi
 bash tests/run-tests.sh
 ```
 
+## Staying current
+
+The script always installs the latest stable releases. A daily GitHub Action tests every new Docker, Compose and Buildx release against the script. A weekly review checks the release notes for anything that could break CoreELEC installs. [COMPATIBILITY.md](COMPATIBILITY.md) lists what has been reviewed, and [MAINTENANCE.md](MAINTENANCE.md) describes the process.
+
 ## Credits
 
 - [tamusiunas/docker-coreelec](https://github.com/tamusiunas/docker-coreelec), which showed that a 64-bit Docker on CoreELEC works and defined the `/storage/.docker` layout used here

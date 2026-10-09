@@ -234,6 +234,13 @@ check "help works" bash -c "PATH=$M:\$PATH bash '$SCRIPT' help | grep -q 'Comman
 check "status works without Docker" bash -c "PATH=$M:\$PATH bash '$SCRIPT' status | grep -q 'no Docker installed'"
 check "status shows (none) for backups" bash -c "PATH=$M:\$PATH bash '$SCRIPT' status | grep -q '(none)'"
 
+echo "maintainer commands"
+new_box
+check "print-default-config is valid JSON" bash -c "PATH=$M:\$PATH bash '$SCRIPT' print-default-config | python3 -m json.tool"
+check "print-default-config honours MIN_API_VERSION" bash -c "PATH=$M:\$PATH MIN_API_VERSION=1.24 bash '$SCRIPT' print-default-config | grep -q min-api-version"
+check "latest-versions" bash -c "test \"\$(PATH=$M:\$PATH bash '$SCRIPT' latest-versions)\" = '29.10.1 v2.40.3 v0.29.1'"
+check "maintainer commands change nothing" test ! -e "$DCE_ROOT/storage/.docker/bin"
+
 echo "fresh install"
 new_box; run install; rc=$?
 check "exit code 0" test "$rc" = 0
