@@ -9,6 +9,15 @@
 | Reviewed | Docker | Compose | Buildx | CI checks | Review notes | Hardware |
 | --- | --- | --- | --- | --- | --- | --- |
 | 2026-10-09 | 29.9.0 | – | – | pending first run | First review, see below | not yet |
+| 2026-10-12 | 29.9.0 | v5.6.0 | v0.38.0 | pass (2026-10-09 to 2026-10-11) | Compose/Buildx baseline; CoreELEC not checked, see below | not yet |
+
+## Notes per review
+
+### 2026-10-12: Compose and Buildx baseline
+
+- Docker is unchanged at 29.9.0 (reviewed 2026-10-09).
+- First recorded Compose (v5.6.0) and Buildx (v0.38.0) versions. The daily check confirms that the assets the script downloads still exist with the same names: `docker-compose-linux-aarch64` with its `.sha256`, and `buildx-v0.38.0.linux-arm64` with an entry in `checksums.txt`. No code change is needed.
+- The release notes of Compose and Buildx and the CoreELEC announcements could not be read in this run (the websites were not reachable from the maintenance task). They should be checked in the next review.
 
 ## Notes per Docker version
 
