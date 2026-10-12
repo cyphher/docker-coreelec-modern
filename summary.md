@@ -1,6 +1,6 @@
 ## Upstream check: pass
 
-Docker `29.9.0` · Compose `v5.6.0` · Buildx `v0.38.0` · 2026-10-11 11:24 UTC
+Docker `29.9.0` · Compose `v5.6.0` · Buildx `v0.38.0` · 2026-10-12 13:10 UTC
 
 | | Check | Detail |
 | --- | --- | --- |
