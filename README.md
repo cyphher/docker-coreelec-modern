@@ -153,6 +153,11 @@ If the log ends with *Docker could not be brought back automatically*, nothing h
 
 Please open an issue with the log (`/storage/docker-coreelec.log`) so it can be fixed.
 
+## Troubleshooting
+
+- **`invalid userland-proxy-path: ... userland-proxy-path is not set`** during a fresh install: fixed in 1.0.1. With 1.0.0, download the script again (see [Install](#install)), or run `PATH=/storage/.docker/update-tmp/docker:$PATH bash /storage/docker-coreelec.sh install`.
+- **`self-update failed: could not download ...`**: the box could not reach `raw.githubusercontent.com`. Check its internet connection and DNS. The current script is left unchanged.
+
 ## Testing
 
 `tests/run-tests.sh` runs every scenario against a simulated CoreELEC box, with mocked `docker`, `systemctl`, `systemd-run` and `curl`:
@@ -164,6 +169,7 @@ Please open an issue with the log (`/storage/docker-coreelec.log`) so it can be 
 - failures injected at every step after Docker is stopped
 - manual rollback, and a refused rollback when the add-on was installed again
 - uninstall and `--purge`
+- `self-update`, including a failed download
 - a dropped SSH session, and settings surviving into the background run
 - refusals
 

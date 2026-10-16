@@ -15,7 +15,7 @@
 #
 # See README.md for all options.
 
-TOOL_VERSION="1.0.0"
+TOOL_VERSION="1.0.1"
 REPO_URL="https://github.com/cyphher/docker-coreelec-modern"
 RAW_URL="https://raw.githubusercontent.com/cyphher/docker-coreelec-modern/main/docker-coreelec.sh"
 
@@ -426,10 +426,17 @@ write_default_config() {   # $1 = file, $2 = data-root, $3 = storage driver
     } > "$1"
 }
 
+validate_config() {   # $1 = daemon.json; checked by the NEW dockerd
+    # dockerd looks up docker-proxy (userland-proxy-path) in PATH. On a fresh install the
+    # new binaries are only in $TMP/docker, and on an update an older docker-proxy may be
+    # in PATH, so the new binary directory goes first.
+    PATH="$TMP/docker:$PATH" "$TMP/docker/dockerd" --validate --config-file "$1"
+}
+
 decide_config() {   # writes $TMP/config_action (keep|new) and, for new, $TMP/daemon.json.new
     local action=new
     if [ -f "$CONF" ] && { [ "$SETUP" = modern ] || [ "$SETUP" = legacy ]; }; then
-        if "$TMP/docker/dockerd" --validate --config-file "$CONF" >"$TMP/validate.txt" 2>&1; then
+        if validate_config "$CONF" >"$TMP/validate.txt" 2>&1; then
             action=keep
             log "Your existing daemon.json is valid for Docker $NEW_DOCKER and will be kept"
         else
@@ -440,7 +447,7 @@ decide_config() {   # writes $TMP/config_action (keep|new) and, for new, $TMP/da
     fi
     if [ "$action" = new ]; then
         write_default_config "$TMP/daemon.json.new" "$NEW_DATA_ROOT" "$STORAGE_DRIVER"
-        "$TMP/docker/dockerd" --validate --config-file "$TMP/daemon.json.new" >"$TMP/validate.txt" 2>&1 \
+        validate_config "$TMP/daemon.json.new" >"$TMP/validate.txt" 2>&1 \
             || { sed 's/^/    /' "$TMP/validate.txt" | tee -a "$LOG"; die "the new daemon.json is not accepted by Docker $NEW_DOCKER"; }
     fi
     echo "$action" > "$TMP/config_action"
@@ -964,11 +971,28 @@ do_uninstall() {
 }
 
 do_self_update() {
-    local target new v
+    local target new v code rc err
     target=$(readlink -f "$0")
-    new=$(mktemp)
-    curl -fsSL "$RAW_URL" -o "$new" || { rm -f "$new"; die "download of $RAW_URL failed"; }
-    bash -n "$new" 2>/dev/null && grep -q '^TOOL_VERSION=' "$new" || { rm -f "$new"; die "the downloaded script looks broken"; }
+    new=$(mktemp) || die "cannot create a temporary file"
+    code=$(curl -fsSL -w '%{http_code}' -o "$new" "$RAW_URL" 2>"$new.err"); rc=$?
+    if [ "$rc" != 0 ]; then
+        err=$(head -n 1 "$new.err" 2>/dev/null)
+        rm -f "$new" "$new.err"
+        log "ERROR: self-update failed: could not download $RAW_URL"
+        case "$code" in
+            ""|000) say "  no HTTP response (curl exit code $rc${err:+: $err})" ;;
+            *)      say "  HTTP status $code (curl exit code $rc)" ;;
+        esac
+        say "  The current script was not changed: $target"
+        case "$code" in
+            404) say "  Hint: the file or repository was not found; check that $REPO_URL is reachable and public." ;;
+            *)   say "  Hint: check the internet connection and DNS of this box, and that github.com is reachable." ;;
+        esac
+        exit 1
+    fi
+    rm -f "$new.err"
+    bash -n "$new" 2>/dev/null && grep -q '^TOOL_VERSION=' "$new" \
+        || { rm -f "$new"; die "the downloaded script looks broken; the current script was not changed"; }
     v=$(sed -n 's/^TOOL_VERSION="\(.*\)"/\1/p' "$new")
     if [ "$v" = "$TOOL_VERSION" ] && [ "${FORCE:-}" != 1 ]; then
         rm -f "$new"; say "Already the newest version ($TOOL_VERSION)."; return 0

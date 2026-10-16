@@ -43,7 +43,10 @@ else
             else
                 bash "$SCRIPT" print-default-config > "$W/$variant.json"
             fi
-            if out=$(sudo "$W/docker/dockerd" --validate --config-file "$W/$variant.json" 2>&1); then
+            # Same PATH order as docker-coreelec.sh: dockerd must find the docker-proxy from
+            # the new release, not the one the runner may have installed.
+            if out=$(sudo env PATH="$W/docker:/usr/sbin:/usr/bin:/sbin:/bin" \
+                     "$W/docker/dockerd" --validate --config-file "$W/$variant.json" 2>&1); then
                 add PASS "config-$variant" "$out"
             else
                 add FAIL "config-$variant" "$(echo "$out" | tr '\n' ' ')"
