@@ -30,7 +30,7 @@ Every run follows the same safe sequence:
 
    Doing all this first matters because once a Pi-hole or VPN container stops, your network may be gone.
 2. **Back up.** The current binaries, configuration and Docker's metadata are saved: container definitions, image index and networks. Image layers, volumes and container logs are not copied; the update does not touch them.
-3. **Install and start.** The containers that were running are started again, as are systemd services that depend on Docker. Containers started with `--rm` are left to whatever started them, usually such a service.
+3. **Install and start.** The containers that were running are started again, as are systemd services that depend on Docker. Containers started with `--rm` are left to whatever started them, usually such a service. Monitoring containers are stopped first and started last (see [Start and stop order](#start-and-stop-order)).
 4. **Roll back automatically** if Docker does not start, or if a container or service that was running before does not come back. The same happens if anything fails after Docker has been stopped. If nothing had been changed yet, only the previous Docker is started again.
 5. **Keep running when your connection drops.** If you manage your box over a VPN that runs in Docker (WireGuard, Tailscale, ...), your SSH session drops as soon as the containers stop. The script runs in the background and finishes or rolls back by itself. Reconnect after a minute or two and read the log.
 
@@ -85,8 +85,29 @@ Environment variables:
 | `BUILDX_VERSION=v0.29.1` | Install a specific Buildx version |
 | `MIN_API_VERSION=1.24` | Write `min-api-version` into a **new** `daemon.json`, so older API clients keep working (see [Portainer](#portainer)) |
 | `FORCE=1` | Reinstall even if everything is up to date |
+| `MONITOR_NAMES="pinger grafana"` | Treat these containers (by name, space or comma separated) as monitoring containers, see [Start and stop order](#start-and-stop-order) |
 
 Example: `DOCKER_VERSION=29.9.0 bash /storage/docker-coreelec.sh install`
+
+## Start and stop order
+
+During an install, an update, the automatic rollback and `rollback`, containers are stopped and started in this order, so monitoring tools do not see the other containers go down and come back, and do not flood you with alerts:
+
+- **Stopping:** monitoring containers first, then all others.
+- **Starting:**
+  1. normal containers;
+  2. containers that use another container's network (`network_mode: service:gluetun` in Compose);
+  3. monitoring containers, last.
+
+  A container that still does not run is started again, up to 3 times; the final check covers all containers.
+
+A container counts as a monitoring container when:
+
+- its image repository name (the part after the last `/`, without registry, tag or digest, not case-sensitive) is one of `uptime-kuma`, `beszel`, `beszel-agent`, `netalertx`, `gatus`, `healthchecks`, `netdata`, `scrutiny`, `smokeping`, `speedtest-tracker` or `dozzle`. For example `louislam/uptime-kuma:2`, `ghcr.io/netalertx/netalertx` and `lscr.io/linuxserver/healthchecks` all match. Watchtower is not on the list: it updates containers, it does not monitor them;
+- or it has the label `docker-coreelec.order=last` (in Compose: `labels: ["docker-coreelec.order=last"]`; a label can only be added when the container is created);
+- or its name is in `MONITOR_NAMES`, for example `MONITOR_NAMES="grafana pinger" bash /storage/docker-coreelec.sh update`.
+
+Is a monitoring image missing from the list? Please open an issue or a pull request; the list is `MONITOR_IMAGES` near the top of the script.
 
 ## After migrating from the Kodi add-on
 
@@ -169,6 +190,7 @@ Please open an issue with the log (`/storage/docker-coreelec.log`) so it can be 
 - Kodi add-on migration: with `--rm` containers managed by systemd units, without `docker.conf`, and with the data behind a symlink
 - automatic rollback when Docker does not start, or when a container or service does not come back
 - containers that share another container's network, and a container that needs a second start
+- the stop and start order of monitoring containers, on update, rollback and automatic rollback
 - failures injected at every step after Docker is stopped
 - manual rollback, and a refused rollback when the add-on was installed again
 - uninstall and `--purge`

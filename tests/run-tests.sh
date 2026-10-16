@@ -35,7 +35,13 @@ case "$1" in
              *-q*)  cat "$S/running" 2>/dev/null ;;
              *)     sed 's/^/c-/' "$S/running" 2>/dev/null ;;
            esac ;;
-  stop)    : > "$S/running" ;;
+  stop)    # Records the order: one line "stop <ids>" per call.
+           shift; ids=""
+           while [ $# -gt 0 ]; do
+             case "$1" in -t) shift ;; *) ids="$ids $1"; grep -vx "$1" "$S/running" > "$S/running.new" 2>/dev/null; mv -f "$S/running.new" "$S/running" ;; esac
+             shift
+           done
+           echo "stop$ids" >> "$S/stops" ;;
   start)   # Like the real daemon: a container with NetworkMode container:X only starts when X
            # runs; the others in the same call still start, and the call fails at the end.
            # A file flaky_<id> makes the first start of that container fail once.
@@ -60,14 +66,16 @@ case "$1" in
   image)   if [ -f "$S/arch32" ]; then echo arm; else echo arm64; fi ;;
   inspect) [ "$2" = "-f" ] || { echo "[]"; exit 0; }
            id=${4:-}
+           img=$(sed -n "s/^$id //p" "$S/images" 2>/dev/null); img=${img:-img-$id}
            case "$3" in
+             *docker-coreelec.order*) echo "$img /c-$id $(sed -n "s/^$id //p" "$S/labels" 2>/dev/null)" ;;
              *AutoRemove*)   case "$id" in id_rm*) echo true ;; *) echo false ;; esac ;;
              *State*)        if [ -f "$S/failnew" ] && eng | grep -q '^29'; then r=false; t=true
                              elif grep -qx "$id" "$S/running" 2>/dev/null; then r=true; t=false
                              else r=false; t=false; fi
                              case "$3" in *Restarting*) echo "$r$t" ;; *) echo "$r" ;; esac ;;
              *NetworkMode*)  m=$(sed -n "s/^$id //p" "$S/netmode" 2>/dev/null); echo "${m:-bridge}" ;;
-             *Config.Image*) echo "img-$id" ;;
+             *Config.Image*) echo "$img" ;;
              *Image*)        echo "sha-$id" ;;
              *Name*)         echo "/c-$id" ;;
            esac ;;
@@ -347,6 +355,78 @@ check "mock refuses the dependent alone" bash -c "test $rc = 1 && grep -q 'non r
 shared_net; run rollback
 check "rollback brings both back" both_up
 check "rollback did not warn" hasnt "$LOGF" "WARNING: not running"
+
+echo "monitoring containers stop first and start last"
+# kuma, beszel-agent (registry, upper case, using gluetun's network), a container with the
+# label docker-coreelec.order=last and one named in MONITOR_NAMES are monitoring; pihole,
+# watchtower, gluetun and qbittorrent (gluetun's network) are not. Listed mixed up.
+MON_SET="id_beszel id_custom id_grafana id_kuma"
+monitoring() {
+    printf '%s\n' id_kuma id_qbittorrent id_grafana id_pihole id_custom id_gluetun id_watchtower id_beszel \
+        > "$MOCK_STATE/running"
+    cat > "$MOCK_STATE/images" <<'EOI'
+id_kuma louislam/uptime-kuma:2-slim@sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
+id_beszel GHCR.IO/HenryGD/Beszel-Agent:latest
+id_pihole pihole/pihole:2025.08.0
+id_watchtower containrrr/watchtower
+id_gluetun qmcgaw/gluetun:v3
+id_qbittorrent lscr.io/linuxserver/qbittorrent:latest
+id_grafana localhost:5000/grafana/grafana:11
+id_custom localhost:5000/my/pinger:1
+EOI
+    echo "id_grafana last" > "$MOCK_STATE/labels"
+    printf 'id_qbittorrent container:id_gluetun\nid_beszel container:id_gluetun\n' > "$MOCK_STATE/netmode"
+    : > "$MOCK_STATE/stops"; : > "$MOCK_STATE/starts"
+}
+all_mon_up() {
+    for i in id_kuma id_qbittorrent id_grafana id_pihole id_custom id_gluetun id_watchtower id_beszel; do
+        grep -qx "$i" "$MOCK_STATE/running" || return 1
+    done
+}
+call_set() {   # $1 = file, $2 = line number: the IDs of that call, sorted
+    sed -n "${2}p" "$1" | cut -d' ' -f2- | tr ' ' '\n' | sort | xargs
+}
+stop_order_ok() {
+    [ "$(wc -l < "$MOCK_STATE/stops")" = 2 ] &&
+    [ "$(call_set "$MOCK_STATE/stops" 1)" = "$MON_SET" ] &&
+    [ "$(call_set "$MOCK_STATE/stops" 2)" = "id_gluetun id_pihole id_qbittorrent id_watchtower" ]
+}
+start_order_ok() {
+    [ "$(wc -l < "$MOCK_STATE/starts")" = 4 ] &&
+    [ "$(call_set "$MOCK_STATE/starts" 1)" = "id_gluetun id_pihole id_watchtower" ] &&
+    [ "$(call_set "$MOCK_STATE/starts" 2)" = "id_qbittorrent" ] &&
+    [ "$(call_set "$MOCK_STATE/starts" 3)" = "id_custom id_grafana id_kuma" ] &&
+    [ "$(call_set "$MOCK_STATE/starts" 4)" = "id_beszel" ]
+}
+new_box; run install; monitoring; MONITOR_NAMES=c-id_custom FORCE=1 run install; rc=$?
+check "exit code 0" test "$rc" = 0
+check "finished without rollback" bash -c "grep -q DONE '$LOGF' && ! grep -q 'rolling back' '$W/out.txt'"
+check "stop: monitoring first, then the rest" stop_order_ok
+check "start: normal, shared network, monitoring" start_order_ok
+check "no retries needed" hasnt "$LOGF" "starting again"
+check "everything running" all_mon_up
+check "logged the monitoring group" has "$LOGF" "Stopping monitoring containers first: "
+check "watchtower is not monitoring" bash -c "grep 'Stopping containers:' '$LOGF' | grep -q c-id_watchtower"
+monitoring; MONITOR_NAMES=c-id_custom run rollback
+check "rollback: stop order" stop_order_ok
+check "rollback: start order" start_order_ok
+check "rollback: everything running" all_mon_up
+new_box; run install; monitoring; MONITOR_NAMES="c-id_other,c-id_custom" FORCE=1 DCE_TEST_FAIL=install_files run install
+check "automatic rollback happened" has "$W/out.txt" "simulated failure at 'install_files'"
+check "automatic rollback: stop order" stop_order_ok
+check "automatic rollback: start order" start_order_ok
+check "automatic rollback: everything running" all_mon_up
+new_box; run install; monitoring; FORCE=1 run install
+check "without MONITOR_NAMES that one is a normal container" \
+    bash -c "sed -n 2p '$MOCK_STATE/stops' | grep -q id_custom"
+
+echo "MONITOR_NAMES reaches the background run through systemd-run"
+new_box; run install; monitoring; touch "$MOCK_STATE/sdrun_ok"
+PATH=$M:$PATH WAIT_TRIES=2 SETTLE_SECONDS=0 RETRY_SECONDS=0 MONITOR_NAMES=c-id_custom FORCE=1 \
+    timeout 3 bash "$SCRIPT" install -y > "$W/out.txt" 2>&1
+check "install finished" wait_log "DONE"
+check "passed to systemd-run" has "$MOCK_STATE/sdrun_calls" "--setenv=MONITOR_NAMES=c-id_custom"
+check "stop order in the background" stop_order_ok
 
 echo "a container that fails its first start is started again"
 new_box; run install; running; touch "$MOCK_STATE/flaky_id_pihole"; FORCE=1 run install; rc=$?

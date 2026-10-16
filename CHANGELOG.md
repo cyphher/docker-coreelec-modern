@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.0.3 (unreleased)
+
+- Monitoring containers are stopped first and started last during an install, update, the automatic rollback and `rollback`, so they do not see the other containers disappear and come back and do not send a storm of alerts. Known monitoring images are recognised by their repository name (`uptime-kuma`, `beszel`, `beszel-agent`, `netalertx`, `gatus`, `healthchecks`, `netdata`, `scrutiny`, `smokeping`, `speedtest-tracker`, `dozzle`), whatever the registry, tag or digest. Other containers can be marked with the label `docker-coreelec.order=last` or the new environment variable `MONITOR_NAMES`. The start order is now: normal containers, containers that use another container's network, monitoring containers. The retries and the final check are unchanged.
+
 ## 1.0.2 (unreleased)
 
 - Fix: after an update, a container that uses another container's network (`network_mode: service:gluetun` in Compose, `NetworkMode` `container:<id>`) could fail to start with `cannot join network namespace of a non running container`, when `docker ps` listed it before the container whose network it uses. The update then rolled back, and the rollback failed the same way. Such containers are now started after the others, and any container that still does not run is started again, up to 3 times with a short pause. Only the final check decides about a rollback. This applies to updates, the automatic rollback and `rollback`.
