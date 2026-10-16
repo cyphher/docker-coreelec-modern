@@ -136,9 +136,17 @@ printf '#!/bin/bash\nexit 0\n' > "$M/killall"
 chmod +x "$M"/*
 
 mk_dockerd() {   # $1 = file, $2 = version
+    # Like the real dockerd, --validate needs docker-proxy in PATH (userland-proxy-path).
+    # The mock is stricter: it must be the docker-proxy next to this dockerd, so a
+    # docker-proxy elsewhere on the test machine (CI runners have one) cannot hide the bug.
     cat > "$1" <<EOF
 #!/bin/bash
 if [ "\${1:-}" = "--validate" ]; then
+  p=\$(command -v docker-proxy)
+  if [ -z "\$p" ] || [ "\$(readlink -f "\$p")" != "\$(readlink -f "\$(dirname "\$0")")/docker-proxy" ]; then
+    echo "unable to configure the Docker daemon with file \$3: merged configuration validation from file and command line flags failed: invalid userland-proxy-path: userland-proxy is enabled, but userland-proxy-path is not set"
+    exit 1
+  fi
   if grep -q cluster-store "\$3"; then echo 'the following directives dont match any configuration option: cluster-store'; exit 1; fi
   echo "configuration OK"; exit 0
 fi
@@ -259,6 +267,10 @@ check "service enabled" has "$MOCK_STATE/calls" "enable service.system.docker.se
 check "PATH added to .profile" has "$DCE_ROOT/storage/.profile" "$B/bin"
 check "new engine running" engine_is "$B/bin/dockerd"
 check "update-tmp cleaned up" test ! -e "$B/update-tmp"
+
+check "validation found the new docker-proxy" hasnt "$W/out.txt" "userland-proxy-path"
+check "mock dockerd refuses without docker-proxy in PATH" \
+    bash -c "! env PATH=/usr/bin:/bin '$P/docker/dockerd' --validate --config-file '$CONF'"
 
 echo "install again"
 run install
@@ -413,6 +425,41 @@ new_box; run install; mkdir -p "$B/data-root/volumes/x"; touch "$MOCK_STATE/sdru
 PATH=$M:$PATH WAIT_TRIES=2 SETTLE_SECONDS=0 timeout 3 bash "$SCRIPT" uninstall --purge -y > "$W/out.txt" 2>&1
 check "uninstall finished" wait_log "DONE: Docker removed"
 check "--purge survived into the background" test ! -e "$B/data-root"
+
+echo "self-update"
+SU=$W/selfupdate; mkdir -p "$SU/bin"
+cp "$SCRIPT" "$SU/dce.sh"; sum0=$(md5sum < "$SU/dce.sh")
+mk_su_curl() {   # $1 = curl exit code, $2 = HTTP status, $3 = file to serve (optional)
+    cat > "$SU/bin/curl" <<EOF
+#!/bin/bash
+out=""; while [ \$# -gt 0 ]; do [ "\$1" = -o ] && out=\$2; shift; done
+if [ "$1" != 0 ]; then echo "curl: ($1) The requested URL returned error: $2" >&2; printf '%s' "$2"; exit $1; fi
+cp "${3:-/dev/null}" "\$out"; printf 200
+EOF
+    chmod +x "$SU/bin/curl"
+}
+su_run() { PATH=$SU/bin:$PATH bash "$SU/dce.sh" self-update > "$W/out.txt" 2>&1; }
+new_box
+mk_su_curl 22 404; su_run; rc=$?
+check "404: exit code not 0" test "$rc" != 0
+check "404: names the URL" has "$W/out.txt" "raw.githubusercontent.com/cyphher/docker-coreelec-modern/main/docker-coreelec.sh"
+check "404: shows the HTTP status" has "$W/out.txt" "HTTP status 404"
+check "404: says the script is unchanged" has "$W/out.txt" "was not changed"
+check "404: hint about the repository" has "$W/out.txt" "reachable and public"
+check "404: script untouched" test "$sum0" = "$(md5sum < "$SU/dce.sh")"
+mk_su_curl 6 000; su_run; rc=$?
+check "no network: exit code not 0" test "$rc" != 0
+check "no network: no HTTP response" has "$W/out.txt" "no HTTP response (curl exit code 6"
+check "no network: hint about the connection" has "$W/out.txt" "internet connection"
+check "no network: script untouched" test "$sum0" = "$(md5sum < "$SU/dce.sh")"
+printf '#!/bin/bash\nTOOL_VERSION="1.0.0\n' > "$SU/broken.sh"
+mk_su_curl 0 200 "$SU/broken.sh"; su_run; rc=$?
+check "broken download: exit code not 0" test "$rc" != 0
+check "broken download: script untouched" test "$sum0" = "$(md5sum < "$SU/dce.sh")"
+sed 's/^TOOL_VERSION=.*/TOOL_VERSION="9.9.9"/' "$SCRIPT" > "$SU/newer.sh"
+mk_su_curl 0 200 "$SU/newer.sh"; su_run; rc=$?
+check "success: exit code 0" test "$rc" = 0
+check "success: script replaced" grep -qx 'TOOL_VERSION="9.9.9"' "$SU/dce.sh"
 
 echo "refusals"
 new_box; MOCK_ARCH=armv7l run install

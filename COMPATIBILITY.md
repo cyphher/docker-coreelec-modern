@@ -10,8 +10,17 @@
 | --- | --- | --- | --- | --- | --- | --- |
 | 2026-10-09 | 29.9.0 | – | – | pending first run | First review, see below | not yet |
 | 2026-10-12 | 29.9.0 | v5.6.0 | v0.38.0 | pass (2026-10-09 to 2026-10-11) | Compose/Buildx baseline; CoreELEC not checked, see below | not yet |
+| 2026-10-16 | 29.9.1 | v5.6.0 | v0.38.0 | not part of this change | Fresh-install bug found on hardware, fixed in 1.0.1, see below | Odroid C4, CoreELEC 22.0-Piers nightly 20261016: fresh install worked with a `PATH` workaround |
 
 ## Notes per review
+
+### 2026-10-16: first hardware report, fresh install
+
+- Box: Odroid C4, CoreELEC 22.0-Piers nightly 20261016, kernel 5.15.196, aarch64, cgroup v2. No Docker installed before.
+- Versions: Docker 29.9.1, Compose v5.6.0, Buildx v0.38.0.
+- With 1.0.0, `install` stopped before changing anything: `dockerd --validate` refused the new `daemon.json` with `invalid userland-proxy-path: userland-proxy is enabled, but userland-proxy-path is not set`. dockerd looks up `docker-proxy` in `PATH`, and on a fresh install the new binaries were only in `/storage/.docker/update-tmp/docker`. Updates were not affected because an older `docker-proxy` was in `PATH`, and the daily check missed it because the GitHub runner has its own `docker-proxy`.
+- Workaround with 1.0.0: `PATH=/storage/.docker/update-tmp/docker:$PATH bash docker-coreelec.sh install`, which then completed.
+- Fixed in 1.0.1: validation runs with the new binary directory first in `PATH`. The daily check now uses only the new release's binaries in `PATH`.
 
 ### 2026-10-12: Compose and Buildx baseline
 
