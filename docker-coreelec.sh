@@ -15,7 +15,7 @@
 #
 # See README.md for all options.
 
-TOOL_VERSION="1.0.1"
+TOOL_VERSION="1.0.2"
 REPO_URL="https://github.com/cyphher/docker-coreelec-modern"
 RAW_URL="https://raw.githubusercontent.com/cyphher/docker-coreelec-modern/main/docker-coreelec.sh"
 
@@ -51,11 +51,12 @@ STATIC_URL=https://download.docker.com/linux/static/stable/aarch64
 KEEP_BACKUPS=${KEEP_BACKUPS:-3}
 WAIT_TRIES=${WAIT_TRIES:-60}            # x 2 s waiting for dockerd
 SETTLE_SECONDS=${SETTLE_SECONDS:-20}    # time containers get to come up before checking
+RETRY_SECONDS=${RETRY_SECONDS:-3}       # pause before starting containers that did not start again
 MIN_FREE_MB=500
 META_ITEMS="containers image network engine-id containerd/daemon/io.containerd.metadata.v1.bolt"
 OBSOLETE_BINS="rootlesskit rootlesskit-docker-proxy dockerd-rootless.sh dockerd-rootless-setuptool.sh vpnkit"
 PASS_ENV="DOCKER_VERSION COMPOSE_VERSION BUILDX_VERSION MIN_API_VERSION FORCE PURGE DCE_ROOT
-WAIT_TRIES SETTLE_SECONDS KEEP_BACKUPS http_proxy https_proxy HTTP_PROXY HTTPS_PROXY
+WAIT_TRIES SETTLE_SECONDS RETRY_SECONDS KEEP_BACKUPS http_proxy https_proxy HTTP_PROXY HTTPS_PROXY
 no_proxy NO_PROXY CURL_CA_BUNDLE DCE_TEST_FAIL"
 
 export PATH="$BIN:$PATH"
@@ -290,14 +291,52 @@ stop_engine() {
     sleep 3
 }
 
+not_running() {   # $1 = file with container IDs; prints the ones that are not running
+    local id
+    while read -r id; do
+        [ -n "$id" ] || continue
+        [ "$(dk inspect -f '{{.State.Running}}' "$id" 2>/dev/null)" = true ] || echo "$id"
+    done < "$1"
+}
+
+cname() { dk inspect -f '{{.Name}}' "$1" 2>/dev/null | tr -d /; }
+
+start_containers() {   # $1 = file with container IDs
+    local id first="" later="" pass ids names
+    # A container that uses another container's network (network_mode: service:x in
+    # Compose, NetworkMode container:<id>) cannot start before that one runs, so these
+    # go last. Errors here are only logged; the check in start_saved decides.
+    while read -r id; do
+        [ -n "$id" ] || continue
+        case "$(dk inspect -f '{{.HostConfig.NetworkMode}}' "$id" 2>/dev/null)" in
+            container:*) later="$later $id" ;;
+            *)           first="$first $id" ;;
+        esac
+    done < "$1"
+    log "Starting containers"
+    # shellcheck disable=SC2086
+    [ -n "$first" ] && dk start $first >>"$LOG" 2>&1
+    # shellcheck disable=SC2086
+    [ -n "$later" ] && dk start $later >>"$LOG" 2>&1
+    # Whatever still did not start (for example a longer chain of shared networks)
+    # gets a few more tries.
+    for pass in 1 2 3; do
+        ids=$(not_running "$1")
+        [ -n "$ids" ] || return 0
+        sleep "$RETRY_SECONDS"
+        names=""
+        for id in $ids; do names="$names $(cname "$id")"; done
+        log "Not running yet, starting again (try $pass of 3):$names"
+        # shellcheck disable=SC2086
+        dk start $ids >>"$LOG" 2>&1
+    done
+    return 0
+}
+
 start_saved() {   # $1 = dir with running.txt / units.txt; sets FAILED
     local id st name u
     FAILED=""
-    if [ -s "$1/running.txt" ]; then
-        log "Starting containers"
-        # shellcheck disable=SC2046
-        dk start $(cat "$1/running.txt") >>"$LOG" 2>&1
-    fi
+    [ -s "$1/running.txt" ] && start_containers "$1/running.txt"
     if [ -s "$1/units.txt" ]; then
         log "Starting services: $(tr '\n' ' ' < "$1/units.txt")"
         # shellcheck disable=SC2046
@@ -1056,8 +1095,16 @@ if [ -z "${DCE_DETACHED:-}" ]; then
         [ -n "${!v:-}" ] && SETENV+=("--setenv=$v=${!v}")
     done
     # Keep running even when the SSH session drops (stopping a VPN container does that).
+    # --collect (systemd 236+) removes the transient unit afterwards, also when the run
+    # failed; without it a failed run stays listed in 'systemctl --failed'. The log
+    # file keeps the outcome either way.
+    SDRUN_OPTS=(--unit="docker-coreelec-$(date +%s)")
+    if command -v systemd-run >/dev/null &&
+       systemd-run --help 2>/dev/null | grep -q -- '--collect'; then
+        SDRUN_OPTS+=(--collect)
+    fi
     if ! { command -v systemd-run >/dev/null &&
-           systemd-run --unit="docker-coreelec-$(date +%s)" "${SETENV[@]}" \
+           systemd-run "${SDRUN_OPTS[@]}" "${SETENV[@]}" \
                "$BASH_BIN" "$SELF" "$CMD" >/dev/null 2>&1; }; then
         DCE_DETACHED=1 setsid nohup "$BASH_BIN" "$SELF" "$CMD" >/dev/null 2>&1 </dev/null &
     fi

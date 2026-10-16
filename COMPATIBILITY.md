@@ -10,7 +10,7 @@
 | --- | --- | --- | --- | --- | --- | --- |
 | 2026-10-09 | 29.9.0 | – | – | pending first run | First review, see below | not yet |
 | 2026-10-12 | 29.9.0 | v5.6.0 | v0.38.0 | pass (2026-10-09 to 2026-10-11) | Compose/Buildx baseline; CoreELEC not checked, see below | not yet |
-| 2026-10-16 | 29.9.1 | v5.6.0 | v0.38.0 | not part of this change | Fresh-install bug found on hardware, fixed in 1.0.1, see below | Odroid C4, CoreELEC 22.0-Piers nightly 20261016: fresh install worked with a `PATH` workaround |
+| 2026-10-16 | 29.9.1 | v5.6.0 | v0.38.0 | not part of this change | Fresh-install bug found on hardware, fixed in 1.0.1; start-order bug and leftover failed unit found in an update, fixed in 1.0.2; see below | Odroid C4, CoreELEC 22.0-Piers nightly 20261016: fresh install worked with a `PATH` workaround; update with 1.0.1 rolled back (start order) |
 
 ## Notes per review
 
@@ -21,6 +21,10 @@
 - With 1.0.0, `install` stopped before changing anything: `dockerd --validate` refused the new `daemon.json` with `invalid userland-proxy-path: userland-proxy is enabled, but userland-proxy-path is not set`. dockerd looks up `docker-proxy` in `PATH`, and on a fresh install the new binaries were only in `/storage/.docker/update-tmp/docker`. Updates were not affected because an older `docker-proxy` was in `PATH`, and the daily check missed it because the GitHub runner has its own `docker-proxy`.
 - Workaround with 1.0.0: `PATH=/storage/.docker/update-tmp/docker:$PATH bash docker-coreelec.sh install`, which then completed.
 - Fixed in 1.0.1: validation runs with the new binary directory first in `PATH`. The daily check now uses only the new release's binaries in `PATH`.
+- Later the same day, a real update with 1.0.1 (`FORCE=1 docker-coreelec install`, Docker 29.9.1, 23 containers) found two more problems:
+  - **Start order.** `qbittorrent` uses `network_mode: service:gluetun` and was listed before `gluetun`, so Docker refused to start it (`cannot join network namespace of a non running container: container gluetun is exited`). The update rolled back, and the rollback hit the same error (`WARNING: not running: qbittorrent`). A manual `docker start qbittorrent` afterwards worked.
+  - **Leftover failed unit.** The failed background run stayed in `systemctl --failed` as `docker-coreelec-<time>.service`.
+- Fixed in 1.0.2: containers that share another container's network start after the others, containers that did not start get up to 3 more tries before the check, and the background run uses `systemd-run --collect`.
 
 ### 2026-10-12: Compose and Buildx baseline
 
