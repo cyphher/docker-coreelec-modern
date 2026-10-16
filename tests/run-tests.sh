@@ -36,13 +36,37 @@ case "$1" in
              *)     sed 's/^/c-/' "$S/running" 2>/dev/null ;;
            esac ;;
   stop)    : > "$S/running" ;;
-  start)   shift; for i in "$@"; do echo "$i" >> "$S/running"; done; sort -u -o "$S/running" "$S/running" ;;
+  start)   # Like the real daemon: a container with NetworkMode container:X only starts when X
+           # runs; the others in the same call still start, and the call fails at the end.
+           # A file flaky_<id> makes the first start of that container fail once.
+           shift; bad=""
+           for i in "$@"; do
+             nm=$(sed -n "s/^$i //p" "$S/netmode" 2>/dev/null)
+             case "$nm" in container:*)
+               if ! grep -qx "${nm#container:}" "$S/running" 2>/dev/null; then
+                 echo "Error response from daemon: cannot join network namespace of a non running container: container c-${nm#container:} is exited" >&2
+                 bad="$bad $i"; continue
+               fi ;;
+             esac
+             if [ -f "$S/flaky_$i" ]; then
+               rm -f "$S/flaky_$i"; echo "Error response from daemon: mock flaky start of $i" >&2
+               bad="$bad $i"; continue
+             fi
+             echo "$i" >> "$S/running"
+           done
+           sort -u -o "$S/running" "$S/running"
+           echo "start $*" >> "$S/starts"
+           if [ -n "$bad" ]; then echo "Error: failed to start containers:$bad" >&2; exit 1; fi ;;
   image)   if [ -f "$S/arch32" ]; then echo arm; else echo arm64; fi ;;
   inspect) [ "$2" = "-f" ] || { echo "[]"; exit 0; }
            id=${4:-}
            case "$3" in
              *AutoRemove*)   case "$id" in id_rm*) echo true ;; *) echo false ;; esac ;;
-             *State*)        if [ -f "$S/failnew" ] && eng | grep -q '^29'; then echo falsetrue; else echo truefalse; fi ;;
+             *State*)        if [ -f "$S/failnew" ] && eng | grep -q '^29'; then r=false; t=true
+                             elif grep -qx "$id" "$S/running" 2>/dev/null; then r=true; t=false
+                             else r=false; t=false; fi
+                             case "$3" in *Restarting*) echo "$r$t" ;; *) echo "$r" ;; esac ;;
+             *NetworkMode*)  m=$(sed -n "s/^$id //p" "$S/netmode" 2>/dev/null); echo "${m:-bridge}" ;;
              *Config.Image*) echo "img-$id" ;;
              *Image*)        echo "sha-$id" ;;
              *Name*)         echo "/c-$id" ;;
@@ -92,9 +116,21 @@ cat > "$M/systemd-run" <<EOF
 M=$M
 EOF
 cat >> "$M/systemd-run" <<'EOF'
+# sdrun_old: an old systemd without --collect (not in --help, and refused).
+if [ "${1:-}" = --help ]; then
+  echo "  --unit=UNIT  Run under the specified unit name"
+  [ -f "$MOCK_STATE/sdrun_old" ] || echo "  -G --collect  Unload unit after it ran, even when failed"
+  exit 0
+fi
 [ -f "$MOCK_STATE/sdrun_ok" ] || exit 1
+echo "systemd-run $*" >> "$MOCK_STATE/sdrun_calls"
 envs=(); while [ $# -gt 0 ]; do
-  case "$1" in --setenv=*) envs+=("${1#--setenv=}") ;; --unit=*) ;; *) break ;; esac; shift
+  case "$1" in
+    --setenv=*) envs+=("${1#--setenv=}") ;;
+    --unit=*) ;;
+    --collect) [ -f "$MOCK_STATE/sdrun_old" ] && { echo "systemd-run: unrecognized option '--collect'" >&2; exit 1; } ;;
+    *) break ;;
+  esac; shift
 done
 env -i PATH="$M:/usr/bin:/bin" MOCK_STATE="$MOCK_STATE" "${envs[@]}" "$@" >/dev/null 2>&1 </dev/null &
 exit 0
@@ -225,7 +261,7 @@ setup_addon() {   # $1 = "noconf" to leave out docker.conf
 }
 
 run() {   # run the tool non-interactively, in the foreground
-    PATH=$M:$PATH NO_DETACH=1 WAIT_TRIES=2 SETTLE_SECONDS=0 bash "$SCRIPT" "$@" -y > "$W/out.txt" 2>&1
+    PATH=$M:$PATH NO_DETACH=1 WAIT_TRIES=2 SETTLE_SECONDS=0 RETRY_SECONDS=0 bash "$SCRIPT" "$@" -y > "$W/out.txt" 2>&1
 }
 engine_is() { [ "$(cat "$MOCK_STATE/up")" = "$1" ]; }
 json_ok()   { python3 -m json.tool "$1"; }
@@ -291,6 +327,32 @@ check "backup kind modern" bash -c "ls -d '$B'/backup/*_modern"
 run rollback
 check "back on 29.2.0" bash -c "'$B/bin/dockerd' --version | grep -q 29.2.0"
 check "marker kept" test -f "$B/.docker-coreelec-modern"
+check "containers running" running_ok
+
+echo "update with a container that uses another container's network, listed first"
+# Like gluetun + qbittorrent (network_mode: service:gluetun): docker ps listed the
+# dependent container before the one whose network it uses.
+shared_net() {
+    printf 'id_qbittorrent\nid_gluetun\nid_pihole\n' > "$MOCK_STATE/running"
+    echo "id_qbittorrent container:id_gluetun" > "$MOCK_STATE/netmode"
+}
+both_up() { for i in id_qbittorrent id_gluetun id_pihole; do grep -qx "$i" "$MOCK_STATE/running" || return 1; done; }
+new_box; run install; shared_net; FORCE=1 run install; rc=$?
+check "exit code 0" test "$rc" = 0
+check "finished without rollback" bash -c "grep -q DONE '$LOGF' && ! grep -q 'rolling back' '$W/out.txt'"
+check "dependent container running" both_up
+check "dependent started after the others" bash -c "tail -n 1 '$MOCK_STATE/starts' | grep -qx 'start id_qbittorrent'"
+: > "$MOCK_STATE/running"; "$M/docker-cli" start id_qbittorrent > "$W/mock.txt" 2>&1; rc=$?
+check "mock refuses the dependent alone" bash -c "test $rc = 1 && grep -q 'non running container' '$W/mock.txt'"
+shared_net; run rollback
+check "rollback brings both back" both_up
+check "rollback did not warn" hasnt "$LOGF" "WARNING: not running"
+
+echo "a container that fails its first start is started again"
+new_box; run install; running; touch "$MOCK_STATE/flaky_id_pihole"; FORCE=1 run install; rc=$?
+check "exit code 0" test "$rc" = 0
+check "logged the retry" has "$LOGF" "starting again (try 1 of 3)"
+check "no rollback" hasnt "$W/out.txt" "rolling back"
 check "containers running" running_ok
 
 echo "MIN_API_VERSION"
@@ -425,6 +487,14 @@ new_box; run install; mkdir -p "$B/data-root/volumes/x"; touch "$MOCK_STATE/sdru
 PATH=$M:$PATH WAIT_TRIES=2 SETTLE_SECONDS=0 timeout 3 bash "$SCRIPT" uninstall --purge -y > "$W/out.txt" 2>&1
 check "uninstall finished" wait_log "DONE: Docker removed"
 check "--purge survived into the background" test ! -e "$B/data-root"
+check "transient unit is collected (--collect)" has "$MOCK_STATE/sdrun_calls" "--collect"
+
+echo "background run through an old systemd-run without --collect"
+new_box; run install; touch "$MOCK_STATE/sdrun_ok" "$MOCK_STATE/sdrun_old"
+PATH=$M:$PATH WAIT_TRIES=2 SETTLE_SECONDS=0 timeout 3 bash "$SCRIPT" uninstall -y > "$W/out.txt" 2>&1
+check "uninstall finished" wait_log "DONE: Docker removed"
+check "ran through systemd-run" test -s "$MOCK_STATE/sdrun_calls"
+check "--collect left out" hasnt "$MOCK_STATE/sdrun_calls" "--collect"
 
 echo "self-update"
 SU=$W/selfupdate; mkdir -p "$SU/bin"

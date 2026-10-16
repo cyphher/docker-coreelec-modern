@@ -156,6 +156,8 @@ Please open an issue with the log (`/storage/docker-coreelec.log`) so it can be 
 ## Troubleshooting
 
 - **`invalid userland-proxy-path: ... userland-proxy-path is not set`** during a fresh install: fixed in 1.0.1. With 1.0.0, download the script again (see [Install](#install)), or run `PATH=/storage/.docker/update-tmp/docker:$PATH bash /storage/docker-coreelec.sh install`.
+- **`cannot join network namespace of a non running container`** during an update or rollback (for example `qbittorrent` with `network_mode: service:gluetun`): fixed in 1.0.2, which starts such containers after the one whose network they use. With 1.0.1, start the container by hand afterwards: `docker start qbittorrent`.
+- **A failed `docker-coreelec-<number>.service` in `systemctl --failed`**: left behind by a failed run before 1.0.2; the outcome is in `/storage/docker-coreelec.log`. Remove it with `systemctl reset-failed`.
 - **`self-update failed: could not download ...`**: the box could not reach `raw.githubusercontent.com`. Check its internet connection and DNS. The current script is left unchanged.
 
 ## Testing
@@ -166,6 +168,7 @@ Please open an issue with the log (`/storage/docker-coreelec.log`) so it can be 
 - tamusiunas upgrade with an invalid config
 - Kodi add-on migration: with `--rm` containers managed by systemd units, without `docker.conf`, and with the data behind a symlink
 - automatic rollback when Docker does not start, or when a container or service does not come back
+- containers that share another container's network, and a container that needs a second start
 - failures injected at every step after Docker is stopped
 - manual rollback, and a refused rollback when the add-on was installed again
 - uninstall and `--purge`
