@@ -15,7 +15,7 @@
 #
 # See README.md for all options.
 
-TOOL_VERSION="1.0.2"
+TOOL_VERSION="1.0.3"
 REPO_URL="https://github.com/cyphher/docker-coreelec-modern"
 RAW_URL="https://raw.githubusercontent.com/cyphher/docker-coreelec-modern/main/docker-coreelec.sh"
 
@@ -53,11 +53,33 @@ WAIT_TRIES=${WAIT_TRIES:-60}            # x 2 s waiting for dockerd
 SETTLE_SECONDS=${SETTLE_SECONDS:-20}    # time containers get to come up before checking
 RETRY_SECONDS=${RETRY_SECONDS:-3}       # pause before starting containers that did not start again
 MIN_FREE_MB=500
+MONITOR_NAMES=${MONITOR_NAMES:-}      # extra monitoring containers, by name (space or comma separated)
 META_ITEMS="containers image network engine-id containerd/daemon/io.containerd.metadata.v1.bolt"
 OBSOLETE_BINS="rootlesskit rootlesskit-docker-proxy dockerd-rootless.sh dockerd-rootless-setuptool.sh vpnkit"
 PASS_ENV="DOCKER_VERSION COMPOSE_VERSION BUILDX_VERSION MIN_API_VERSION FORCE PURGE DCE_ROOT
 WAIT_TRIES SETTLE_SECONDS RETRY_SECONDS KEEP_BACKUPS http_proxy https_proxy HTTP_PROXY HTTPS_PROXY
-no_proxy NO_PROXY CURL_CA_BUNDLE DCE_TEST_FAIL"
+no_proxy NO_PROXY CURL_CA_BUNDLE DCE_TEST_FAIL MONITOR_NAMES"
+
+# Monitoring containers are stopped first and started last, so they do not see the other
+# containers go away and come back, and do not send a storm of alerts. Matched on the
+# image repository name: the part after the last '/', without registry, tag or @digest,
+# case-insensitive (lscr.io/linuxserver/healthchecks:latest -> healthchecks). Add a name
+# here to cover another image; users can also set the container label
+# docker-coreelec.order=last or MONITOR_NAMES. Watchtower is left out on purpose: it
+# updates containers, it does not monitor them.
+MONITOR_IMAGES=(
+    uptime-kuma         # louislam/uptime-kuma
+    beszel              # henrygd/beszel
+    beszel-agent        # henrygd/beszel-agent
+    netalertx           # ghcr.io/netalertx/netalertx, jokobsk/netalertx
+    gatus               # twinproduction/gatus
+    healthchecks        # linuxserver/healthchecks, healthchecks/healthchecks
+    netdata             # netdata/netdata
+    scrutiny            # analogj/scrutiny, ghcr.io/starosdev/scrutiny
+    smokeping           # linuxserver/smokeping
+    speedtest-tracker   # linuxserver/speedtest-tracker
+    dozzle              # amir20/dozzle
+)
 
 export PATH="$BIN:$PATH"
 export HOME=$R/storage
@@ -116,6 +138,7 @@ Environment variables:
   BUILDX_VERSION=v0.x.y   Install this Buildx version instead of the latest
   MIN_API_VERSION=1.24    Accept older API clients (e.g. old Portainer) in a new daemon.json
   FORCE=1                 Reinstall even if everything is up to date
+  MONITOR_NAMES="a b"     Also treat these containers as monitoring (stopped first, started last)
 EOF
 }
 
@@ -270,14 +293,43 @@ record_running() {   # $1 = dir; saves running containers and dependent units
     return 0
 }
 
+is_monitor() {   # $1 = container ID; true for a monitoring container (see MONITOR_IMAGES)
+    local img name order b n
+    read -r img name order <<EOF
+$(dk inspect -f '{{.Config.Image}} {{.Name}} {{index .Config.Labels "docker-coreelec.order"}}' "$1" 2>/dev/null)
+EOF
+    [ "${order,,}" = last ] && return 0
+    name=${name#/}
+    for n in ${MONITOR_NAMES//,/ }; do
+        [ "$n" = "$name" ] && return 0
+    done
+    b=${img%%@*}; b=${b##*/}; b=${b%%:*}; b=${b,,}
+    for n in "${MONITOR_IMAGES[@]}"; do
+        [ "$n" = "$b" ] && return 0
+    done
+    return 1
+}
+
 stop_engine() {
-    local ids i
+    local id mon="" rest="" mnames="" rnames="" i
     if dk info >/dev/null 2>&1; then
-        ids=$(dk ps -q)
-        if [ -n "$ids" ]; then
-            log "Stopping containers: $(dk ps --format '{{.Names}}' | tr '\n' ' ')"
+        # Monitoring containers first, so they do not report the others going down.
+        for id in $(dk ps -q); do
+            if is_monitor "$id"; then
+                mon="$mon $id"; mnames="$mnames $(cname "$id")"
+            else
+                rest="$rest $id"; rnames="$rnames $(cname "$id")"
+            fi
+        done
+        if [ -n "$mon" ]; then
+            log "Stopping monitoring containers first:$mnames"
             # shellcheck disable=SC2086
-            dk stop -t 30 $ids >>"$LOG" 2>&1
+            dk stop -t 30 $mon >>"$LOG" 2>&1
+        fi
+        if [ -n "$rest" ]; then
+            log "Stopping containers:$rnames"
+            # shellcheck disable=SC2086
+            dk stop -t 30 $rest >>"$LOG" 2>&1
         fi
     fi
     log "Stopping the Docker service"
@@ -301,23 +353,44 @@ not_running() {   # $1 = file with container IDs; prints the ones that are not r
 
 cname() { dk inspect -f '{{.Name}}' "$1" 2>/dev/null | tr -d /; }
 
+start_group() {   # $1 = log message, then container IDs; errors are only logged
+    local msg=$1 id names=""
+    shift
+    [ $# -gt 0 ] || return 0
+    for id in "$@"; do names="$names $(cname "$id")"; done
+    log "$msg$names"
+    dk start "$@" >>"$LOG" 2>&1
+}
+
 start_containers() {   # $1 = file with container IDs
-    local id first="" later="" pass ids names
-    # A container that uses another container's network (network_mode: service:x in
-    # Compose, NetworkMode container:<id>) cannot start before that one runs, so these
-    # go last. Errors here are only logged; the check in start_saved decides.
+    local id net first="" later="" mon="" monlater="" pass ids names
+    # Start order:
+    #  1. normal containers;
+    #  2. containers that use another container's network (network_mode: service:x in
+    #     Compose, NetworkMode container:<id>): they cannot start before that one runs;
+    #  3. monitoring containers (see MONITOR_IMAGES), so they find everything running.
+    #     One that uses another container's network goes at the very end.
+    # Errors here are only logged; the check in start_saved decides.
     while read -r id; do
         [ -n "$id" ] || continue
         case "$(dk inspect -f '{{.HostConfig.NetworkMode}}' "$id" 2>/dev/null)" in
-            container:*) later="$later $id" ;;
-            *)           first="$first $id" ;;
+            container:*) net=later ;;
+            *)           net=first ;;
         esac
+        if is_monitor "$id"; then
+            if [ "$net" = later ]; then monlater="$monlater $id"; else mon="$mon $id"; fi
+        else
+            if [ "$net" = later ]; then later="$later $id"; else first="$first $id"; fi
+        fi
     done < "$1"
-    log "Starting containers"
     # shellcheck disable=SC2086
-    [ -n "$first" ] && dk start $first >>"$LOG" 2>&1
+    start_group "Starting containers:" $first
     # shellcheck disable=SC2086
-    [ -n "$later" ] && dk start $later >>"$LOG" 2>&1
+    start_group "Starting containers that use another container's network:" $later
+    # shellcheck disable=SC2086
+    start_group "Starting monitoring containers last:" $mon
+    # shellcheck disable=SC2086
+    start_group "Starting monitoring containers that use another container's network:" $monlater
     # Whatever still did not start (for example a longer chain of shared networks)
     # gets a few more tries.
     for pass in 1 2 3; do
