@@ -11,8 +11,19 @@
 | 2026-10-09 | 29.9.0 | – | – | pending first run | First review, see below | not yet |
 | 2026-10-12 | 29.9.0 | v5.6.0 | v0.38.0 | pass (2026-10-09 to 2026-10-11) | Compose/Buildx baseline; CoreELEC not checked, see below | not yet |
 | 2026-10-16 | 29.9.1 | v5.6.0 | v0.38.0 | not part of this change | Fresh-install bug found on hardware, fixed in 1.0.1; start-order bug and leftover failed unit found in an update, fixed in 1.0.2; see below | Odroid C4, CoreELEC 22.0-Piers nightly 20261016: fresh install worked with a `PATH` workaround; update with 1.0.1 rolled back (start order) |
+| 2026-10-19 | 29.9.1 | v5.6.0 | v0.38.0 | pass (2026-10-15 to 2026-10-18) | Patch release, nothing breaking; see below | (see 2026-10-16) |
 
 ## Notes per review
+
+### 2026-10-19: Docker 29.9.1
+
+- Docker 29.9.1 (2026-10-14) is a patch release: containerd v2.4.2 in the static tarball (three security fixes for crashes and disk exhaustion during image pulls), and bug fixes for `--link-local-ip`, `docker ps -s`, `docker save`, the `fluentd` log driver, registry mirrors, plugins, firewalld zones and rootless `--domainname`.
+- Nothing touches the `daemon.json` keys the script writes, `dockerd --validate`, the minimum API version, cgroup v1, old kernels, storage drivers, the containerd image store, iptables/nftables, systemd or `docker-proxy`. The firewalld changes do not apply: CoreELEC has no firewalld.
+- The deprecations page has no new entries since the 29.x review. Removal of `docker commit --pause` and of the legacy links environment variables is targeted for v30.0; the script uses neither.
+- The tarball contents are unchanged (daily check: all expected binaries present, no new files).
+- Compose v5.6.0 and Buildx v0.38.0 are unchanged and still the latest releases (checked with the git tags). Their GitHub release pages could not be read in this run; the daily check confirms the asset names and checksum files.
+- CoreELEC: no release since 22.0-Piers_beta2 (2026-09-07), so no change to the Kodi Docker add-on or the userspace architecture.
+- No code change needed. Docker 29.9.1 was already used in the hardware test of 2026-10-16.
 
 ### 2026-10-16: first hardware report, fresh install
 
