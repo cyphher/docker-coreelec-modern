@@ -12,8 +12,17 @@
 | 2026-10-12 | 29.9.0 | v5.6.0 | v0.38.0 | pass (2026-10-09 to 2026-10-11) | Compose/Buildx baseline; CoreELEC not checked, see below | not yet |
 | 2026-10-16 | 29.9.1 | v5.6.0 | v0.38.0 | not part of this change | Fresh-install bug found on hardware, fixed in 1.0.1; start-order bug and leftover failed unit found in an update, fixed in 1.0.2; see below | Odroid C4, CoreELEC 22.0-Piers nightly 20261016: fresh install worked with a `PATH` workaround; update with 1.0.1 rolled back (start order) |
 | 2026-10-19 | 29.9.1 | v5.6.0 | v0.38.0 | pass (2026-10-15 to 2026-10-18) | Patch release, nothing breaking; see below | (see 2026-10-16) |
+| 2026-10-24 | 29.9.2 | v5.6.1 | v0.38.1 | pass (2026-10-21 to 2026-10-24) | Go 1.26.10 security rebuilds, nothing breaking; CoreELEC 22.0-Piers_rc1 checked; see below | (see 2026-10-16) |
 
 ## Notes per review
+
+### 2026-10-24: Docker 29.9.2, Compose v5.6.1, Buildx v0.38.1, CoreELEC 22.0-Piers_rc1
+
+- Docker 29.9.2 (2026-10-20), Compose v5.6.1 (2026-10-21) and Buildx v0.38.1 (2026-10-20) are rebuilds with Go 1.26.10 for CVE-2026-111943, with no functional changes. Go now rejects TLS certificate chains that use eight revoked eMudhra intermediates (`EM DV/OV/EV TLS CA - G3B/G3C`, `EM OV CS CA - G3B/G3C`), so pulls and pushes to a registry that still uses such a chain fail with a certificate error. That is for the registry to fix, not the script.
+- Nothing touches the `daemon.json` keys the script writes, `dockerd --validate`, the minimum API version, cgroup v1, old kernels, storage drivers, the containerd image store, iptables/nftables, systemd or the tarball contents (daily check: all expected binaries present). The deprecations page is unchanged since the 29.x review.
+- Compose and Buildx asset names and checksum files are unchanged (daily check). The Buildx `v0.38.1` tag points to the same source commit as `v0.38.0`.
+- **Correction to the 2026-10-19 review:** CoreELEC 22.0-Piers_rc1 was released on 2026-10-03, not "no release since beta2". Compared with beta2 (git diff of the tags), the Kodi Docker add-on only got newer bundled versions (Docker 29.7.2 → 29.8.2, containerd 2.3.4 → 2.4.1, Compose 5.5.0 → 5.5.1, add-on revision 14 → 18). Its paths, unit name and `docker.conf` are unchanged, and so is the userspace architecture. systemd goes from 261.2 to 262; `/storage/.config/system.d` stays the unit directory and `systemd-run --collect` is still supported. The Amlogic kernel moves to a newer source commit, with no change to the kernel options Docker needs (cgroups, netfilter, overlay, namespaces, seccomp).
+- No code change needed.
 
 ### 2026-10-19: Docker 29.9.1
 
