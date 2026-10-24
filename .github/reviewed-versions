@@ -1,6 +1,6 @@
 # Upstream versions that have been reviewed (see MAINTENANCE.md).
 # Updated by the weekly maintenance task in its pull request.
-DOCKER=29.9.0
-COMPOSE=v5.6.0
-BUILDX=v0.38.0
-REVIEWED=2026-10-12
+DOCKER=29.9.2
+COMPOSE=v5.6.1
+BUILDX=v0.38.1
+REVIEWED=2026-10-24
