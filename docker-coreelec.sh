@@ -15,7 +15,7 @@
 #
 # See README.md for all options.
 
-TOOL_VERSION="1.0.3"
+TOOL_VERSION="1.0.4"
 REPO_URL="https://github.com/cyphher/docker-coreelec-modern"
 RAW_URL="https://raw.githubusercontent.com/cyphher/docker-coreelec-modern/main/docker-coreelec.sh"
 
@@ -40,6 +40,7 @@ MARKER=$BASE/.docker-coreelec-modern
 SELF_COPY=$BASE/docker-coreelec.sh
 LOG=$R/storage/docker-coreelec.log
 LOCK=$R/var/run/docker-coreelec.lock
+FINISHED=$R/var/run/docker-coreelec.finished   # created when a run ends, also on failure
 PROFILE=$R/storage/.profile
 
 ADDON_ID=service.system.docker
@@ -52,12 +53,13 @@ KEEP_BACKUPS=${KEEP_BACKUPS:-3}
 WAIT_TRIES=${WAIT_TRIES:-60}            # x 2 s waiting for dockerd
 SETTLE_SECONDS=${SETTLE_SECONDS:-20}    # time containers get to come up before checking
 RETRY_SECONDS=${RETRY_SECONDS:-3}       # pause before starting containers that did not start again
+START_SECONDS=${START_SECONDS:-30}      # time the background run gets to start before we stop following
 MIN_FREE_MB=500
 MONITOR_NAMES=${MONITOR_NAMES:-}      # extra monitoring containers, by name (space or comma separated)
 META_ITEMS="containers image network engine-id containerd/daemon/io.containerd.metadata.v1.bolt"
 OBSOLETE_BINS="rootlesskit rootlesskit-docker-proxy dockerd-rootless.sh dockerd-rootless-setuptool.sh vpnkit"
 PASS_ENV="DOCKER_VERSION COMPOSE_VERSION BUILDX_VERSION MIN_API_VERSION FORCE PURGE DCE_ROOT
-WAIT_TRIES SETTLE_SECONDS RETRY_SECONDS KEEP_BACKUPS http_proxy https_proxy HTTP_PROXY HTTPS_PROXY
+WAIT_TRIES SETTLE_SECONDS RETRY_SECONDS START_SECONDS KEEP_BACKUPS http_proxy https_proxy HTTP_PROXY HTTPS_PROXY
 no_proxy NO_PROXY CURL_CA_BUNDLE DCE_TEST_FAIL MONITOR_NAMES"
 
 # Monitoring containers are stopped first and started last, so they do not see the other
@@ -1140,6 +1142,34 @@ case "$CMD" in
     *) echo "Unknown command: $CMD"; usage; exit 1 ;;
 esac
 
+# Show the log of the background run and return when that run is over. The run holds
+# $LOCK while it works and creates $FINISHED when it exits, also when it fails or rolls
+# back. Ctrl+C stops following only; the run itself is not in this process group.
+follow_log() {
+    local tp seen=0 waited=0
+    tail -f "$LOG" &
+    tp=$!
+    trap 'kill "$tp" 2>/dev/null; echo; echo "Stopped following. The run continues in the background; its log is $LOG"; exit 0' INT
+    while [ ! -e "$FINISHED" ]; do
+        if [ -d "$LOCK" ]; then
+            seen=1
+        elif [ "$seen" = 1 ]; then
+            break                       # lock released without the flag: the run was killed
+        elif [ "$waited" -ge "$START_SECONDS" ]; then
+            kill "$tp" 2>/dev/null; wait "$tp" 2>/dev/null; trap - INT
+            echo
+            echo "The background run did not start within $START_SECONDS seconds."
+            echo "Check the log with: tail -f $LOG"
+            return 0
+        fi
+        sleep 1; waited=$((waited + 1))
+    done
+    sleep 1                             # let tail print the last lines
+    kill "$tp" 2>/dev/null; wait "$tp" 2>/dev/null; trap - INT
+    echo
+    echo "The background run has finished. Its log is $LOG"
+}
+
 if [ -z "${DCE_DETACHED:-}" ]; then
     preflight
     "plan_$CMD"
@@ -1161,6 +1191,7 @@ if [ -z "${DCE_DETACHED:-}" ]; then
     if [ "${NO_DETACH:-}" = 1 ]; then
         DCE_DETACHED=1 exec bash "$0" "$CMD"
     fi
+    rm -f "$FINISHED"
     SELF=$(readlink -f "$0")
     BASH_BIN=$(command -v bash)
     SETENV=(--setenv=DCE_DETACHED=1)
@@ -1183,14 +1214,16 @@ if [ -z "${DCE_DETACHED:-}" ]; then
     fi
     echo
     echo "Running in the background now; it keeps going if your connection drops."
-    echo "Following the log (Ctrl+C only stops following):"
+    echo "Following the log until it is done (Ctrl+C only stops following):"
     echo
-    sleep 2
-    exec tail -f "$LOG"
+    follow_log
+    exit 0
 fi
 
 mkdir -p "$(dirname "$LOCK")"
 mkdir "$LOCK" 2>/dev/null || die "another docker-coreelec run is active (if not, remove $LOCK)"
-trap 'rmdir "$LOCK" 2>/dev/null' EXIT
+rm -f "$FINISHED"
+# The flag tells follow_log in the foreground that this run is over, whatever the outcome.
+trap ': > "$FINISHED" 2>/dev/null; rmdir "$LOCK" 2>/dev/null' EXIT
 
 "do_$CMD"
