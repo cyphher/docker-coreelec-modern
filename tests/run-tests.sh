@@ -558,21 +558,55 @@ check "--purge deletes data" test ! -e "$B/data-root"
 
 echo "background run when the SSH session drops (setsid fallback)"
 setup_legacy
-PATH=$M:$PATH WAIT_TRIES=2 SETTLE_SECONDS=0 timeout 3 bash "$SCRIPT" install -y > "$W/out.txt" 2>&1
+PATH=$M:$PATH WAIT_TRIES=2 SETTLE_SECONDS=0 timeout 30 bash "$SCRIPT" install -y > "$W/out.txt" 2>&1; rc=$?
 check "background run finished" wait_log DONE
 check "lock released" test ! -e "$DCE_ROOT/var/run/docker-coreelec.lock"
+check "following stops by itself when the run is done" test "$rc" = 0
+check "the log was shown while following" has "$W/out.txt" "DONE"
+check "says the run has finished" has "$W/out.txt" "The background run has finished"
+
+echo "following stops when the run fails and rolls back"
+new_box; run install; running
+PATH=$M:$PATH WAIT_TRIES=2 SETTLE_SECONDS=0 FORCE=1 DCE_TEST_FAIL=install_files timeout 30 bash "$SCRIPT" install -y > "$W/out.txt" 2>&1; rc=$?
+check "following stops by itself after a rollback" test "$rc" = 0
+check "says the run has finished" has "$W/out.txt" "The background run has finished"
+
+echo "following gives up when the background run does not start"
+new_box; run install
+mkdir -p "$W/nostart"   # a setsid that starts nothing (systemd-run is off by default in the mocks)
+printf '#!/bin/bash\nexit 0\n' > "$W/nostart/setsid"; chmod +x "$W/nostart/setsid"
+PATH=$W/nostart:$M:$PATH START_SECONDS=2 FORCE=1 timeout 30 bash "$SCRIPT" install -y > "$W/out.txt" 2>&1; rc=$?
+check "stops following after START_SECONDS" test "$rc" = 0
+check "says the run did not start" has "$W/out.txt" "did not start within 2 seconds"
+
+echo "Ctrl+C stops following, not the run"
+new_box; run install; running
+set -m
+PATH=$M:$PATH WAIT_TRIES=2 SETTLE_SECONDS=4 FORCE=1 bash "$SCRIPT" install -y > "$W/out.txt" 2>&1 &
+fg_pid=$!
+for _ in $(seq 1 20); do [ -d "$DCE_ROOT/var/run/docker-coreelec.lock" ] && break; sleep 0.5; done
+kill -INT "$fg_pid"
+for _ in $(seq 1 20); do kill -0 "$fg_pid" 2>/dev/null || break; sleep 0.5; done
+if kill -0 "$fg_pid" 2>/dev/null; then kill -9 "$fg_pid"; wait "$fg_pid" 2>/dev/null; rc=124; else wait "$fg_pid"; rc=$?; fi
+set +m
+check "Ctrl+C: exit code 0" test "$rc" = 0
+check "Ctrl+C: says the run continues" has "$W/out.txt" "The run continues in the background"
+check "Ctrl+C: the run still finishes" wait_log DONE
+for _ in $(seq 1 20); do [ -e "$DCE_ROOT/var/run/docker-coreelec.lock" ] || break; sleep 0.5; done
 
 echo "background run through systemd-run keeps the settings"
 new_box; run install; mkdir -p "$B/data-root/volumes/x"; touch "$MOCK_STATE/sdrun_ok"
-PATH=$M:$PATH WAIT_TRIES=2 SETTLE_SECONDS=0 timeout 3 bash "$SCRIPT" uninstall --purge -y > "$W/out.txt" 2>&1
+PATH=$M:$PATH WAIT_TRIES=2 SETTLE_SECONDS=0 timeout 30 bash "$SCRIPT" uninstall --purge -y > "$W/out.txt" 2>&1; rc=$?
 check "uninstall finished" wait_log "DONE: Docker removed"
+check "following stops by itself" test "$rc" = 0
 check "--purge survived into the background" test ! -e "$B/data-root"
 check "transient unit is collected (--collect)" has "$MOCK_STATE/sdrun_calls" "--collect"
 
 echo "background run through an old systemd-run without --collect"
 new_box; run install; touch "$MOCK_STATE/sdrun_ok" "$MOCK_STATE/sdrun_old"
-PATH=$M:$PATH WAIT_TRIES=2 SETTLE_SECONDS=0 timeout 3 bash "$SCRIPT" uninstall -y > "$W/out.txt" 2>&1
+PATH=$M:$PATH WAIT_TRIES=2 SETTLE_SECONDS=0 timeout 30 bash "$SCRIPT" uninstall -y > "$W/out.txt" 2>&1; rc=$?
 check "uninstall finished" wait_log "DONE: Docker removed"
+check "following stops by itself" test "$rc" = 0
 check "ran through systemd-run" test -s "$MOCK_STATE/sdrun_calls"
 check "--collect left out" hasnt "$MOCK_STATE/sdrun_calls" "--collect"
 

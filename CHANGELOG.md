@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.0.4 (unreleased)
+
+- Fix: after `install`, `update`, `rollback` or `uninstall`, the script kept following its log with `tail -f` after the background run had finished, so the session seemed to hang after `DONE` until you pressed Ctrl+C. It now stops following as soon as the run is over, whether it succeeded, rolled back or failed, and says so. The background run signals the end through a flag file next to its lock (`/var/run/docker-coreelec.finished`). Ctrl+C still only stops following; the run keeps going. If the background run does not start within 30 seconds, the script stops following and tells you where the log is.
+
 ## 1.0.3 (unreleased)
 
 - Monitoring containers are stopped first and started last during an install, update, the automatic rollback and `rollback`, so they do not see the other containers disappear and come back and do not send a storm of alerts. Known monitoring images are recognised by their repository name (`uptime-kuma`, `beszel`, `beszel-agent`, `netalertx`, `gatus`, `healthchecks`, `netdata`, `scrutiny`, `smokeping`, `speedtest-tracker`, `dozzle`), whatever the registry, tag or digest. Other containers can be marked with the label `docker-coreelec.order=last` or the new environment variable `MONITOR_NAMES`. The start order is now: normal containers, containers that use another container's network, monitoring containers. The retries and the final check are unchanged.
