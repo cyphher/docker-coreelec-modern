@@ -13,8 +13,18 @@
 | 2026-10-16 | 29.9.1 | v5.6.0 | v0.38.0 | not part of this change | Fresh-install bug found on hardware, fixed in 1.0.1; start-order bug and leftover failed unit found in an update, fixed in 1.0.2; see below | Odroid C4, CoreELEC 22.0-Piers nightly 20261016: fresh install worked with a `PATH` workaround; update with 1.0.1 rolled back (start order) |
 | 2026-10-19 | 29.9.1 | v5.6.0 | v0.38.0 | pass (2026-10-15 to 2026-10-18) | Patch release, nothing breaking; see below | (see 2026-10-16) |
 | 2026-10-24 | 29.9.2 | v5.6.1 | v0.38.1 | pass (2026-10-21 to 2026-10-24) | Go 1.26.10 security rebuilds, nothing breaking; CoreELEC 22.0-Piers_rc1 checked; see below | (see 2026-10-16) |
+| 2026-11-07 | 29.9.3 | v5.7.0 | v0.38.2 | pass (2026-11-04 to 2026-11-06) | Security and bug-fix release, nothing breaking; no new CoreELEC release; see below | (see 2026-10-16) |
 
 ## Notes per review
+
+### 2026-11-07: Docker 29.9.3, Compose v5.7.0, Buildx v0.38.2
+
+- Docker 29.9.3 (2026-11-03) is a security and bug-fix release: fixes for excessive CPU use on crafted RSA keys (CVE-2026-116587) and a panic when decompressing zstd data (CVE-2026-116591), two Swarm fixes (overlay encryption after firewalld flushes the rules, CVE-2026-115538; manager certificate after a leader change, CVE-2026-115539), BuildKit v0.34.2 with two security fixes, a fix for the daemon hanging on container, image and system API requests under load, and a CLI fix for quoting `<<` keys in YAML.
+- Nothing touches the `daemon.json` keys the script writes, `dockerd --validate`, the minimum API version, cgroup v1, old kernels, storage drivers, the containerd image store, iptables/nftables, systemd or the tarball contents (daily check: all expected binaries present, configuration accepted with and without `MIN_API_VERSION`). The Swarm and firewalld fixes do not apply: CoreELEC has no firewalld and the script does not use Swarm. The deprecations page has no new entries since the last review.
+- Compose v5.7.0 (2026-11-02): interactive `up` now runs on a single plan, `depends_on` conditions are checked before the first poll, `up -t` is honoured when an attached `up` stops, fixes for `use_api_socket` credentials and `watch` paths, plus refactoring. The release build and asset names are unchanged (git diff of the tags; daily check: `docker-compose-linux-aarch64` and `.sha256` present). The script starts containers with `docker start`, not Compose, so the start-order logic of 1.0.2 is not affected.
+- Buildx v0.38.2: BuildKit v0.34.2 vendored and two `bake` filesystem-entitlement fixes. Asset names and `checksums.txt` are unchanged (daily check).
+- CoreELEC: no release since 22.0-Piers_rc1 (checked with the git tags of CoreELEC/CoreELEC; the announcements page could not be read in this run), so no change to the Kodi Docker add-on or the userspace architecture.
+- No code change needed.
 
 ### 2026-10-24: Docker 29.9.2, Compose v5.6.1, Buildx v0.38.1, CoreELEC 22.0-Piers_rc1
 
