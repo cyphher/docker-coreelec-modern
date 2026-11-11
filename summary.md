@@ -1,10 +1,10 @@
 ## Upstream check: pass
 
-Docker `29.9.3` · Compose `v5.7.0` · Buildx `v0.38.2` · 2026-11-10 13:28 UTC
+Docker `29.9.3` · Compose `v5.7.1` · Buildx `v0.38.2` · 2026-11-11 12:43 UTC
 
 | | Check | Detail |
 | --- | --- | --- |
-| ✅ | latest-versions | Docker 29.9.3, Compose v5.7.0, Buildx v0.38.2 |
+| ✅ | latest-versions | Docker 29.9.3, Compose v5.7.1, Buildx v0.38.2 |
 | ✅ | aarch64-tarball | all expected binaries present |
 | ✅ | config-default | configuration OK |
 | ✅ | config-min-api-version | configuration OK |
