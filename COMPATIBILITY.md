@@ -14,8 +14,18 @@
 | 2026-10-19 | 29.9.1 | v5.6.0 | v0.38.0 | pass (2026-10-15 to 2026-10-18) | Patch release, nothing breaking; see below | (see 2026-10-16) |
 | 2026-10-24 | 29.9.2 | v5.6.1 | v0.38.1 | pass (2026-10-21 to 2026-10-24) | Go 1.26.10 security rebuilds, nothing breaking; CoreELEC 22.0-Piers_rc1 checked; see below | (see 2026-10-16) |
 | 2026-11-07 | 29.9.3 | v5.7.0 | v0.38.2 | pass (2026-11-04 to 2026-11-06) | Security and bug-fix release, nothing breaking; no new CoreELEC release; see below | (see 2026-10-16) |
+| 2026-11-14 | 29.9.3 | v5.7.1 | v0.39.0 | pass (2026-11-07 to 2026-11-13) | Compose and Buildx bug-fix/feature releases, nothing breaking; CoreELEC 22.0-Piers_rc2 checked; see below | (see 2026-10-16) |
 
 ## Notes per review
+
+### 2026-11-14: Compose v5.7.1, Buildx v0.39.0, CoreELEC 22.0-Piers_rc2
+
+- Docker is unchanged at 29.9.3 (reviewed 2026-11-07).
+- Compose v5.7.1 (2026-11-11): fixes for the OCI and Git caches of remote projects (manifests are verified against their digest, cache entries are replaced atomically), `down` keeps images outside the selected services, uid/gid/mode warnings for services scaled to zero, built with Go 1.27. The release build and asset names are unchanged (daily check: `docker-compose-linux-aarch64` and `.sha256` present). The script does not use Compose to start containers, so nothing here affects it.
+- Buildx v0.39.0 (2026-11-11): BuildKit v0.35.0 vendored, Go 1.27, `bake` filesystem-entitlement fixes, `imagetools` annotation handling, Kubernetes driver changes. Asset names and `checksums.txt` are unchanged (daily check). Nothing affects the plugin install.
+- The release notes were read from the git history of the tags (the GitHub release pages could not be read in this run).
+- CoreELEC 22.0-Piers_rc2 (tagged 2026-11-10, checked with the git tags of CoreELEC/CoreELEC; the announcements page could not be read in this run): the Kodi Docker add-on only gets version bumps (Docker 29.9.3, Compose 5.7.0, containerd 2.4.2, add-on revision 22). Its paths, unit name (`service.system.docker.service`) and `docker.conf` are unchanged. systemd goes from 262 to 262.2; the userspace architecture is unchanged.
+- No code change needed.
 
 ### 2026-11-07: Docker 29.9.3, Compose v5.7.0, Buildx v0.38.2
 
