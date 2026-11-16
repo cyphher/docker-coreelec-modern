@@ -1,6 +1,6 @@
 {
-  "checked_at": "2026-11-15T12:44:41Z",
-  "docker": "29.9.3",
+  "checked_at": "2026-11-16T13:39:28Z",
+  "docker": "29.10.0",
   "compose": "v5.7.1",
   "buildx": "v0.39.0",
   "result": "pass",
@@ -8,7 +8,7 @@
     {
       "status": "PASS",
       "name": "latest-versions",
-      "detail": "Docker 29.9.3, Compose v5.7.1, Buildx v0.39.0"
+      "detail": "Docker 29.10.0, Compose v5.7.1, Buildx v0.39.0"
     },
     {
       "status": "PASS",
