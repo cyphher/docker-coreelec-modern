@@ -1,14 +1,14 @@
 {
-  "checked_at": "2026-11-19T14:25:59Z",
+  "checked_at": "2026-11-20T14:01:15Z",
   "docker": "29.10.0",
   "compose": "v5.8.0",
-  "buildx": "v0.39.0",
+  "buildx": "v0.39.1",
   "result": "pass",
   "checks": [
     {
       "status": "PASS",
       "name": "latest-versions",
-      "detail": "Docker 29.10.0, Compose v5.8.0, Buildx v0.39.0"
+      "detail": "Docker 29.10.0, Compose v5.8.0, Buildx v0.39.1"
     },
     {
       "status": "PASS",
@@ -33,7 +33,7 @@
     {
       "status": "PASS",
       "name": "buildx-asset",
-      "detail": "buildx-v0.39.0.linux-arm64 and checksums.txt entry present"
+      "detail": "buildx-v0.39.1.linux-arm64 and checksums.txt entry present"
     }
   ]
 }
