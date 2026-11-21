@@ -15,8 +15,25 @@
 | 2026-10-24 | 29.9.2 | v5.6.1 | v0.38.1 | pass (2026-10-21 to 2026-10-24) | Go 1.26.10 security rebuilds, nothing breaking; CoreELEC 22.0-Piers_rc1 checked; see below | (see 2026-10-16) |
 | 2026-11-07 | 29.9.3 | v5.7.0 | v0.38.2 | pass (2026-11-04 to 2026-11-06) | Security and bug-fix release, nothing breaking; no new CoreELEC release; see below | (see 2026-10-16) |
 | 2026-11-14 | 29.9.3 | v5.7.1 | v0.39.0 | pass (2026-11-07 to 2026-11-13) | Compose and Buildx bug-fix/feature releases, nothing breaking; CoreELEC 22.0-Piers_rc2 checked; see below | (see 2026-10-16) |
+| 2026-11-21 | 29.10.0 | v5.8.0 | v0.39.1 | pass (2026-11-16 to 2026-11-20) | Minor Docker release, nothing breaking for the script; local insecure registries may need a `daemon.json` change; no new CoreELEC release; see below | (see 2026-10-16) |
 
 ## Notes per review
+
+### 2026-11-21: Docker 29.10.0, Compose v5.8.0, Buildx v0.39.1
+
+- Docker 29.10.0 (2026-11-16) is a minor release. Read from the release notes in the docker/docs repository and the moby source at the tag (the docs website could not be read in this run).
+- **Potential breaking change for some users: local insecure registries.** When `insecure-registries` is set in `daemon.json`, Docker no longer treats loopback addresses (`127.0.0.0/8`, `::1`) as insecure on top of it. A user who kept their own `daemon.json` with `insecure-registries` and pulls from or pushes to an HTTP registry on `localhost` must add that address (for example `localhost:5000`) to the list. Without the key, loopback stays insecure as before. The default `daemon.json` of the script does not set `insecure-registries`, so fresh installs and migrations with a new config are not affected. `dockerd --validate` still accepts existing files (it is a behaviour change, not a removed key).
+- New: support for configuration drop-ins for containerd in a `containerd.d` directory next to the daemon configuration file. It is only read in the experimental `embedded-containerd` mode, which the script does not enable, and a missing directory is ignored (checked in the source).
+- New: experimental "jobs" extension, opt-in with `--enable-extension`; not used by the script.
+- The default AppArmor and seccomp profiles now block obsolete socket families. Normal media and network containers do not use them.
+- runc 1.5.3 in the static tarball (was 1.5.2), BuildKit v0.35.0, Go 1.27.4. API version 1.57; the default minimum API version stays 1.40 (unchanged since 29.3.0).
+- nftables and iptables fixes (port publishing with the userland proxy disabled, leftover iptables rules after switching to nftables, rules after firewalld restarts) and a fix for a container starting without networking after an earlier network error. None of them changes how the script configures the daemon; CoreELEC has no firewalld.
+- Nothing touches the other `daemon.json` keys the script writes, cgroup v1, old kernels, storage drivers, the containerd image store default, systemd `Type=notify` or the tarball contents (daily check: all expected binaries present, configuration accepted with and without `MIN_API_VERSION`). The deprecations page has no new entries; the v30.0 removals (`docker commit --pause`, legacy links environment variables) are unchanged.
+- Compose v5.8.0 (2026-11-17): support for the new Docker jobs extension, `up --wait` streams logs, fixes for `up`, `down -v`, `--scale` and dry-run hooks, Docker CLI v29.10.0 libraries. The release build and asset names are unchanged (git diff of the tags; daily check: `docker-compose-linux-aarch64` and `.sha256` present). The script does not use Compose to start containers.
+- Buildx v0.39.1 (2026-11-19): only BuildKit v0.35.1 vendored. Asset names and `checksums.txt` are unchanged (daily check).
+- CoreELEC: no release since 22.0-Piers_rc2 (checked with the git tags of CoreELEC/CoreELEC; the announcements page could not be read in this run), so no change to the Kodi Docker add-on or the userspace architecture.
+- **Correction to the 29.x notes and the README:** since Docker 29.3.0 the default minimum API version is 1.40 (Docker 19.03), not 1.44. Older clients down to API 1.40 connect again without `MIN_API_VERSION`.
+- No code change needed.
 
 ### 2026-11-14: Compose v5.7.1, Buildx v0.39.0, CoreELEC 22.0-Piers_rc2
 
